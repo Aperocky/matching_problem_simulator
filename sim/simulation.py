@@ -1,18 +1,27 @@
 import random
+import numpy as np
 
 
 """
-New (attempt) algorithm for stable matching problem
+New (attempt) algorithm for stable marriage problem
 """
 class MatchingSimulator():
 
-    def __init__(self, n, delta):
+    # SIM TYPES:
+    # NEAR: uses the next consecutive numbers and wraps around 0
+    # RANDOM: uses random number from the edge pool
+
+    # STOP FACTOR:
+    # paths stops when reaching stop_factor*delta proposal attempts.
+    def __init__(self, n, delta, sim_type="RANDOM", stop_factor=0.333):
         self.n = n
         self.delta = delta
+        self.sim_type = sim_type
+        self.stop_factor = stop_factor
 
         # whole process iteration count
         self.iter_count = 0
-        # a try_set for all possible tries.
+        # a try_set for all possible try indexes.
         self.try_set = set(range(delta))
         self.paths = {}
         self.edges = {}
@@ -21,13 +30,27 @@ class MatchingSimulator():
             # times: times proposing
             # found: currently found match
             # tried: All past proposal attempts
+            # selection: populated by set_paths_selection
             self.paths[i] = {"times": 0, "found": -1, "tried": set()}
             # EDGES
             # suitor: current round proposed paths
             # chosen: currently chosen path
             # weight: all historical proposal count
             self.edges[i] = {"suitor": [], "chosen": -1, "weight": 0}
+        self.set_paths_selection()
         self.complete = False
+
+    # Allowing either random selection, or near (delta) selections
+    def set_paths_selection(self):
+        rng = np.random.default_rng()
+        if self.sim_type == "RANDOM":
+            for i in range(self.n):
+                self.paths[i]["selection"] = rng.choice(self.n, self.delta, replace=False)
+        elif self.sim_type == "NEAR":
+            for i in range(self.n):
+                self.paths[i]["selection"] = np.mod(i + np.arange(self.delta), self.n)
+        else:
+            raise "Selection type not recognized"
 
     # Get all paths that need to propose for current round
     def get_paths_needing_to_propose(self):
@@ -41,14 +64,14 @@ class MatchingSimulator():
     def run_propose(self):
         to_propose = self.get_paths_needing_to_propose()
         for p in to_propose:
-            if len(self.paths[p]["tried"]) >= self.delta/3:
+            if len(self.paths[p]["tried"]) >= self.delta*self.stop_factor:
                 self.iter_data["loner_count"] += 1
                 continue # No possible proposal target, stay lonely
             self.paths[p]["times"] += 1
             # Find proposal target, avoid previously proposed.
-            curr_selection = random.choice(list(self.try_set - self.paths[p]["tried"]))
-            self.paths[p]["tried"].add(curr_selection)
-            proposal_target = (curr_selection + p) % self.n
+            curr_selection_index = random.choice(list(self.try_set - self.paths[p]["tried"]))
+            self.paths[p]["tried"].add(curr_selection_index)
+            proposal_target = self.paths[p]["selection"][curr_selection_index]
             # Add proposal to the edge selected.
             self.edges[proposal_target]["suitor"].append(p)
         self.iter_data["proposal_count"] = len(to_propose) - self.iter_data["loner_count"]
